@@ -1,6 +1,6 @@
 [package]
 name = "jsonrpc-base"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Victor Lopez <vhrlopes@gmail.com>"]
 edition = "2021"
 description = "A minimalistic types implementation of the JSON-RPC protocol"
@@ -16,4 +16,5 @@ serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 uuid = { version = "1.3", default-features = false, features = ["v4"], optional = true }
 
 [features]
-default = ["uuid"]
+default = ["std", "uuid"]
+std = []

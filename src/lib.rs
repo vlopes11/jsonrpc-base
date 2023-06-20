@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 
@@ -12,6 +12,7 @@ mod request;
 mod response;
 
 pub use error::Error;
+pub use message::Message;
 pub use notification::Notification;
 pub use request::Request;
 pub use response::Response;

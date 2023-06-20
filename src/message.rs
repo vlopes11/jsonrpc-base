@@ -1,31 +1,51 @@
 use super::{helpers, Error, Notification, Request, Response};
 use alloc::string::ToString;
-use core::str::FromStr;
+use core::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// JSON-RPC message
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Message {
+    /// JSON-RPC request
     Request(Request),
+    /// JSON-RPC notification
     Notification(Notification),
+    /// JSON-RPC response
     Response(Response),
 }
 
 impl Message {
+    /// Parse a string into the message, returning the message and the remaining string
     pub fn parse(s: &str) -> Result<(Self, &str), Error> {
-        let (message, _) = helpers::get_content_length(s)?;
-        let (message, _) = s.split_at(message);
-        let message: Value = serde_json::from_str(message).map_err(|e| Error {
+        let (message, remainder) = helpers::get_content_length(s)?;
+        let message = Message::parse_json(message)?;
+        Ok((message, remainder))
+    }
+
+    /// Parse a message from the provided JSON
+    pub fn parse_json(json: &str) -> Result<Self, Error> {
+        let value: Value = serde_json::from_str(json).map_err(|e| Error {
             code: Error::INVALID_REQUEST,
             message: e.to_string(),
-            data: Some(Value::String(s.to_string())),
+            data: Some(Value::String(json.to_string())),
         })?;
-        if message.get("method").is_some() && message.get("id").is_some() {
-            Request::parse(s).map(|(r, s)| (Self::Request(r), s))
-        } else if message.get("method").is_some() {
-            Notification::parse(s).map(|(n, s)| (Self::Notification(n), s))
+        if value.get("method").is_some() && value.get("id").is_some() {
+            Request::parse_json(json).map(Self::Request)
+        } else if value.get("method").is_some() {
+            Notification::parse_json(json).map(Self::Notification)
         } else {
-            Response::parse(s).map(|(r, s)| (Self::Response(r), s))
+            Response::parse_json(json).map(Self::Response)
+        }
+    }
+}
+
+impl fmt::Display for Message {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Message::Request(r) => r.fmt(f),
+            Message::Notification(n) => n.fmt(f),
+            Message::Response(r) => r.fmt(f),
         }
     }
 }
@@ -98,5 +118,49 @@ impl TryFrom<Message> for Response {
                 data: serde_json::to_value(value).ok(),
             }),
         }
+    }
+}
+
+#[cfg(feature = "std")]
+mod io {
+    use super::*;
+    use std::io::prelude::*;
+
+    impl Message {
+        /// Read a message from a reader.
+        ///
+        /// Returns the number of consumed bytes and the message.
+        pub fn try_from_reader<R>(reader: R) -> Result<(usize, Self), Error>
+        where
+            R: Read,
+        {
+            let (n, contents) = helpers::get_content_from_reader(reader)?;
+            let message = Message::parse_json(&contents)?;
+            Ok((n, message))
+        }
+
+        /// Write a message to a writer and return the number of bytes written.
+        pub fn try_to_writer<W>(&self, mut writer: W) -> Result<usize, Error>
+        where
+            W: Write,
+        {
+            writer
+                .write(self.to_string().as_bytes())
+                .map_err(|e| Error {
+                    code: Error::PARSE_ERROR,
+                    message: e.to_string(),
+                    data: serde_json::to_value(&self).ok(),
+                })
+        }
+    }
+
+    #[test]
+    fn test_try_from_reader() {
+        let input = r#"Content-Length: 75
+
+{"jsonrpc":"2.0","id":"3162690c-fe69-4b78-b418-0b2e8326ac08","result":true}"#;
+
+        let (consumed, _message) = Message::try_from_reader(input.as_bytes()).unwrap();
+        assert_eq!(consumed, input.len());
     }
 }
